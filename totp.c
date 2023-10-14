@@ -9,7 +9,7 @@
 
 // Function declarations
 void longToHex(time_t unix_time, int64_t T0, int64_t X, char *steps);
-void hexToByteArray(const char *hex, unsigned char *byteArray, size_t length);
+unsigned char *hexToByteArray(const char *hex);
 unsigned char *mx_hmac_sha256(const void *key, int keylen, const unsigned char *data, int datalen,
                               unsigned char *result, unsigned int *resultlen);
 unsigned char *hmac_result(unsigned char *key, const unsigned char *msg);
@@ -56,13 +56,10 @@ void generateTOTP(char *key,
     char steps[17]; // This steps replaces the 'time' variable in the documentation.
     longToHex(time, T0, X, steps);
     // Get the HEX in a Byte[]
-    size_t msglen;
-    unsigned char *msg;
-    hexToByteArray(steps, msg, msglen);
+    // unsigned char *msg = NULL;
+    unsigned char *msg = hexToByteArray(steps);
 
-    size_t klen;
-    unsigned char *k;
-    hexToByteArray(key, k, klen);
+    unsigned char *k = hexToByteArray(key);
     const unsigned char *hash = hmac_result(k, msg);
     // put selected bytes into result int
     int offset = hash[strlen(hash) - 1] & 0xf;
@@ -82,16 +79,16 @@ void longToHex(time_t unix_time, int64_t T0, int64_t X, char *steps)
     // zero-padding to fill 16 bytes, convert from long to hexadecimal.
     snprintf(steps, 17, "%016lX", T);
 
-    printf("Hexadecimal string: %s\n", steps);
+    // printf("Hexadecimal string: %s\n", steps);
 }
 
 /// @brief Converts hex value to byte array in the same way the rfc6238 algorithm does.
 /// This code was brought and modified from stackoverflow.
 /// @param hex
 /// @return byte array
-void hexToByteArray(const char *hex, unsigned char *byteArray, size_t length)
+unsigned char *hexToByteArray(const char *hex)
 {
-    length = (strlen(hex) + 1) / 2;
+    size_t length = (strlen(hex) + 1) / 2;
 
     // Concatenate "10" with the input hex string
     char *inputHex = malloc(strlen(hex) + 3); // 2 for "10", 1 for null terminator
@@ -101,7 +98,7 @@ void hexToByteArray(const char *hex, unsigned char *byteArray, size_t length)
     // Convert hex string to unsigned long long integer
     unsigned long long num = strtoull(inputHex, NULL, 16);
     // Allocate memory for the byte array
-    byteArray = (unsigned char *)malloc(length);
+    unsigned char *byteArray = (unsigned char *)malloc(length);
 
     for (size_t i = 0; i < length; ++i)
     {
@@ -118,6 +115,7 @@ void hexToByteArray(const char *hex, unsigned char *byteArray, size_t length)
     }
     // Free dynamically allocated memory
     free(inputHex);
+    return byteArray;
 }
 
 int main(int argc, char **argv)
@@ -164,7 +162,12 @@ int main(int argc, char **argv)
         strcpy(steps, "");
         strcpy(result, "");
         generateTOTP(seed32, unix_time, 6, T0, X, result);
+        printf("---------\n");
+
+        printf("TOTP: %s\n\n ", result);
+
         time_spent = 0.0;
+        last_time = 0.0;
     }
     puts("\nStopped by signal `SIGINT'");
     return EXIT_SUCCESS;
