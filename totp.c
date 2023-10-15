@@ -92,11 +92,12 @@ unsigned char *hexToByteArray(const char *hex)
 
     // Concatenate "10" with the input hex string
     char *inputHex = malloc(strlen(hex) + 3); // 2 for "10", 1 for null terminator
-    strcpy(inputHex, "10");
+    strcpy(inputHex, "0x");
     strcat(inputHex, hex);
 
     // Convert hex string to unsigned long long integer
-    unsigned long long num = strtoull(inputHex, NULL, 16);
+    char *endptr;
+    unsigned long long num = strtoull(inputHex, &endptr, 16);
     // Allocate memory for the byte array
     unsigned char *byteArray = (unsigned char *)malloc(length);
 
@@ -118,6 +119,11 @@ unsigned char *hexToByteArray(const char *hex)
     return byteArray;
 }
 
+void verifyTOTP()
+{
+    puts("Verify Code:");
+}
+
 int main(int argc, char **argv)
 {
     // Accept signal to stop terminal with SIGINT (ctrl +c) process.
@@ -134,38 +140,39 @@ int main(int argc, char **argv)
 
     int64_t testTime[] = {59L};
     int64_t T0 = 0;
-    int64_t X = 30;
+    int64_t X = 5;
     time_t unix_time = 1111111109L;
     char steps[17];
+    printf("Current Time as unix time:%ld\n", start);
 
     char result[7];
     generateTOTP(seed32, unix_time, 6, T0, X, result);
-    printf("TOTP: %s\n\n", result);
+    time_t currentTime;
 
     /* Mark beginning time */
     while (keepRunning)
     {
-        start = clock();
+        time(&start);
         do
         {
+            time(&currentTime);
             /* Get CPU time since loop started */
-            time_spent = (double)(clock() - start) / CLOCKS_PER_SEC;
+            time_spent = (double)difftime(currentTime, start);
             if (time_spent - last_time >= 1.0)
             {
                 // Clean the console and write the new remaining value.
                 printf("");
-                printf("\033[A\33[2K\r Remaining time: %d seconds\n", (int)round(time_step - time_spent));
+                printf("\033[A\33[2K\r\033[A\33[2K\r Remaining time: %d seconds\t Your TOTP:%s\n", (int)round(time_step - time_spent), result);
                 last_time = time_spent;
+                verifyTOTP();
             }
         } while ((time_spent < time_step) && keepRunning);
         // Generate a new TOTP, and continue.
         strcpy(steps, "");
         strcpy(result, "");
-        generateTOTP(seed32, unix_time, 6, T0, X, result);
-        printf("---------\n");
-
-        printf("TOTP: %s\n\n ", result);
-
+        time(&currentTime);
+        // printf("Current Time: %ld", currentTime);
+        generateTOTP(seed32, currentTime, 6, T0, X, result);
         time_spent = 0.0;
         last_time = 0.0;
     }
