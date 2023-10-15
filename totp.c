@@ -9,7 +9,7 @@
 
 // Function declarations
 void longToHex(time_t unix_time, int64_t T0, int64_t X, char *steps);
-unsigned char *hexToByteArray(const char *hex);
+void hexToByteArray(const char *hex, unsigned char *val);
 unsigned char *mx_hmac_sha256(const void *key, int keylen, const unsigned char *data, int datalen,
                               unsigned char *result, unsigned int *resultlen);
 unsigned char *hmac_result(unsigned char *key, const unsigned char *msg);
@@ -48,30 +48,6 @@ unsigned char *hmac_result(unsigned char *key, const unsigned char *msg)
     return result;
 }
 
-void generateTOTP(char *key,
-                  time_t time, // I choose not to implement time as a hex string as it is on the documentation, because I find it more confusing.
-                  int codeDigits, int64_t T0, int64_t X,
-                  char result[7])
-{
-    char steps[17]; // This steps replaces the 'time' variable in the documentation.
-    longToHex(time, T0, X, steps);
-    // Get the HEX in a Byte[]
-    // unsigned char *msg = NULL;
-    unsigned char *msg = hexToByteArray(steps);
-
-    unsigned char *k = hexToByteArray(key);
-    const unsigned char *hash = hmac_result(k, msg);
-    // put selected bytes into result int
-    int offset = hash[strlen(hash) - 1] & 0xf;
-    int binary =
-        ((hash[offset] & 0x7f) << 24) |
-        ((hash[offset + 1] & 0xff) << 16) |
-        ((hash[offset + 2] & 0xff) << 8) |
-        (hash[offset + 3] & 0xff);
-    int otp = binary % DIGITS_POWER[codeDigits];
-    snprintf(result, 7, "%06d", otp);
-}
-
 void longToHex(time_t unix_time, int64_t T0, int64_t X, char *steps)
 {
     int64_t T = (unix_time - T0) / X;
@@ -86,46 +62,108 @@ void longToHex(time_t unix_time, int64_t T0, int64_t X, char *steps)
 /// This code was brought and modified from stackoverflow.
 /// @param hex
 /// @return byte array
-unsigned char *hexToByteArray(const char *hex)
+/// https://stackoverflow.com/questions/3408706/hexadecimal-string-to-byte-array-in-c
+void hexToByteArray(const char *hex, unsigned char *val)
 {
-    size_t length = (strlen(hex) + 1) / 2;
 
     // Concatenate "10" with the input hex string
     char *inputHex = malloc(strlen(hex) + 3); // 2 for "10", 1 for null terminator
+
     strcpy(inputHex, "0x");
     strcat(inputHex, hex);
-
-    // Convert hex string to unsigned long long integer
-    char *endptr;
-    unsigned long long num = strtoull(inputHex, &endptr, 16);
-    // Allocate memory for the byte array
-    unsigned char *byteArray = (unsigned char *)malloc(length);
-
-    for (size_t i = 0; i < length; ++i)
+    size_t length = strlen(hex);
+    // val = (unsigned char *)calloc(length, sizeof(char));
+    int startIndex = 0;
+    while (hex[startIndex] == '0' && startIndex < strlen(hex) - 1)
     {
-        byteArray[i] = (unsigned char)(num >> (8 * ((length - 1) - i))); // Extracting individual bytes
+        startIndex++; // Skip leading zeros
+    }
+    if ((strlen(hex) - startIndex) % 2 != 0)
+    {
+        startIndex--;
     }
 
-    // Check if the string has at least one character
-    if (strlen(byteArray) > 1)
+    const char *pos = hex + startIndex;
+    // unsigned char val[length];
+    // val[length];
+    // *val = malloc(length);
+    if (val == NULL)
     {
-        // Shift characters to remove the first character
-        memmove(byteArray, byteArray + 1, strlen(byteArray));
-        // Make sure the string is null-terminated
-        byteArray[strlen(byteArray) - 1] = '\0';
+        // Handle memory allocation failure
+        free(inputHex);
     }
-    // Free dynamically allocated memory
+    /* WARNING: no sanitization or error-checking whatsoever */
+
+    ////TODO: 141'i atlıyor ama okay gibi.
+
+    for (size_t count = 0; count < length; count++)
+    {
+        sscanf(pos, "%2hhx", &val[count]);
+        pos += 2;
+    }
+    // for (size_t i = 0; i < length; i += 2)
+    // {
+    //     char byteString[3]; // Two characters for the byte plus null terminator
+    //     strncpy(byteString, inputHex + i, 2);
+    //     byteString[2] = '\0'; // Null terminator
+    //     unsigned char byteValue = strtol(byteString, NULL, 16);
+    //     val[i / 2] = byteValue;
+    // }
+    if (strlen(val) > 1)
+    {
+        printf("Yes");
+    }
+
     free(inputHex);
-    return byteArray;
 }
 
 void verifyTOTP()
 {
     puts("Verify Code:");
 }
+void generateTOTP(char *key,
+                  time_t time, // I choose not to implement time as a hex string as it is on the documentation, because I find it more confusing.
+                  int codeDigits, int64_t T0, int64_t X,
+                  char result[7])
+{
+    char steps[17]; // This steps replaces the 'time' variable in the documentation.
+    longToHex(time, T0, X, steps);
+    // Get the HEX in a Byte[]
+    unsigned char *msg = (unsigned char *)malloc((strlen(steps) + 3) / 2);
+    hexToByteArray(steps, msg);
+
+    unsigned char k[(strlen(key) + 3) / 2];
+
+    hexToByteArray(key, k);
+    const unsigned char *hash = hmac_result(k, msg);
+    // put selected bytes into result int
+    int offset = hash[strlen(hash) - 1] & 0xf;
+    int binary =
+        ((hash[offset] & 0x7f) << 24) |
+        ((hash[offset + 1] & 0xff) << 16) |
+        ((hash[offset + 2] & 0xff) << 8) |
+        (hash[offset + 3] & 0xff);
+    int otp = binary % DIGITS_POWER[codeDigits];
+    snprintf(result, 7, "%06d", otp);
+}
+
+char *createDynamicString()
+{
+    // Allocate memory for the string
+    char *str = (char *)malloc(50 * sizeof(char)); // Allocate space for 50 characters
+
+    if (str != NULL)
+    {
+        // Copy the content to the dynamically allocated string
+        strcpy(str, "Hello, World!");
+    }
+
+    return str;
+}
 
 int main(int argc, char **argv)
 {
+    createDynamicString();
     // Accept signal to stop terminal with SIGINT (ctrl +c) process.
     signal(SIGINT, sig_handler);
 
