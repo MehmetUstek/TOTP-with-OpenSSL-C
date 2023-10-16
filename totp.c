@@ -12,8 +12,8 @@
 #define ERROR_WRONG_ARGUMENT 3
 
 // Forward declarations
-unsigned char *hmac_sha256(const void *key, size_t keylen, const unsigned char *data, size_t msglen,
-                           unsigned char *result, unsigned int *resultlen);
+unsigned char *getHMAC(const void *key, size_t keylen, const unsigned char *data, size_t msglen,
+                       unsigned char *result, unsigned int *resultlen);
 unsigned char *hmac_result(unsigned char *key, const unsigned char *msg, size_t keylen, size_t msglen);
 void longToHex(time_t unix_time, int64_t T0, int64_t X, char *steps);
 void hexToByteArray(const char *hex, unsigned char *val);
@@ -22,8 +22,9 @@ void generateTOTP(char *key, time_t time, int codeDigits, int64_t T0, int64_t X,
                   char result[7]);
 void test();
 void catchSignal();
-void argHandler(char **argv, char *secret);
+void argHandler(int argc, char **argv, char *secret);
 void totpLoop(char *secret, double time_step);
+void UIMessages();
 
 /// Constant or predefined variable declarations
 static int DIGITS_POWER[] = {1, 10, 100, 1000, 10000, 100000, 1000000, 10000000, 100000000};
@@ -31,7 +32,9 @@ static volatile sig_atomic_t keepRunning = 1;
 int64_t T0 = 0;
 int64_t X = 30;
 
-int killTheProgram(int exitCode)
+/// @brief Kills the process if encountered with an error.
+/// @param exitCode
+void killTheProgram(int exitCode)
 {
     switch (exitCode)
     {
@@ -43,7 +46,7 @@ int killTheProgram(int exitCode)
         break;
     case ERROR_WRONG_ARGUMENT:
         printf("Wrong arguments are given to the terminal. To generate a totp, please run the code without arguments.\n");
-        printf("To look at test cases use argument 'test'. To verify your totp code, please use 'verify [your totp code]' e.g verify 603303");
+        UIMessages();
         break;
 
     default:
@@ -60,19 +63,19 @@ static void sig_handler(int _)
     (void)_;
     keepRunning = 0;
 }
-/// @brief hmac_sha256 calculation using EVP api
+/// @brief HMAC calculation using EVP api. I used sha3-512 since I found it more secure than standard sha2-256.
 /// @param key byte array version of the shared secret key
 /// @param keylen
 /// @param msg byte array version of the formatted T value.
 /// @param msglen
 /// @param result
 /// @param resultlen
-/// @return
-unsigned char *hmac_sha256(const void *key, size_t keylen,
-                           const unsigned char *msg, size_t msglen,
-                           unsigned char *result, unsigned int *resultlen)
+/// @return hash value of HMAC algorithm.
+unsigned char *getHMAC(const void *key, size_t keylen,
+                       const unsigned char *msg, size_t msglen,
+                       unsigned char *result, unsigned int *resultlen)
 {
-    return HMAC(EVP_sha256(), key, keylen, msg, msglen, result, resultlen);
+    return HMAC(EVP_sha3_512(), key, keylen, msg, msglen, result, resultlen);
 }
 
 // TODO: Error Handling
@@ -82,7 +85,7 @@ unsigned char *hmac_sha256(const void *key, size_t keylen,
 /// @param msg byte array version of the formatted T value.
 /// @param keylen
 /// @param msglen
-/// @return
+/// @return hash value of HMAC algorithm. 64 bytes for HMAC-sha512, 32 bytes for HMAC-sha256
 unsigned char *hmac_result(unsigned char *key, const unsigned char *msg, size_t keylen, size_t msglen)
 {
     // int length = sizeof(msg) / sizeof(msg[0]);
@@ -91,7 +94,7 @@ unsigned char *hmac_result(unsigned char *key, const unsigned char *msg, size_t 
     unsigned char *result = NULL;
     unsigned int resultlen = -1;
 
-    result = hmac_sha256((const void *)key, keylen, msg, msglen, result, &resultlen);
+    result = getHMAC((const void *)key, keylen, msg, msglen, result, &resultlen);
     return result;
 }
 /// @brief Converts long value T to hex string. Applies left zero-padding to fill 16 bytes.
@@ -160,14 +163,15 @@ void verifyTOTP(char *key, int64_t T0, int64_t X, char *totp)
     }
 }
 
-/// @brief
+/// @brief Generates totp value by combining the byte arrays of key and time to generate a hash value using hmac algorithm.
+/// This hash value is then
 /// @param key shared secret key
 /// @param time standart unix time (in seconds) from 01-01-1970 00.00.00
 /// @param codeDigits indicates how many digits a TOTP value should have. This assignment requires this value
 /// to be 6. Thus, everywhere else in this code accepts the codeDigits = 6.
 /// @param T0 is the Unix time to start counting time steps
 /// @param X represents the time step in seconds
-/// @param result
+/// @param result time based one time password (TOTP)
 void generateTOTP(char *key,
                   time_t time,
                   int codeDigits, int64_t T0, int64_t X,
@@ -192,14 +196,19 @@ void generateTOTP(char *key,
     //     killTheProgram();
     // }
     // put selected bytes into result int
-    int offset = hash[strlen(hash) - 1] & 0xf; // Same variable calculations with RFC6238 algorithm
+
+    // Same variable calculations with RFC6238 algorithm
+    // 0xf is hex rep of 0000 1111. This calculation simply gets the last character (or the last byte)
+    // of this hash value and further gets the 4 least significant bits.
+    // The goal here is to provide pseudo-randomness.
+    int offset = hash[strlen(hash) - 1] & 0xf;
     int binary =
         ((hash[offset] & 0x7f) << 24) |
         ((hash[offset + 1] & 0xff) << 16) |
         ((hash[offset + 2] & 0xff) << 8) |
         (hash[offset + 3] & 0xff);
     int otp = binary % DIGITS_POWER[codeDigits];
-    snprintf(result, 7, "%06d", otp); // Zero-pad the otp if it is missing 6 digits.
+    snprintf(result, 7, "%06d", otp); // Zero-pad the otp since the 'int' variable will discard the leading zero digits.
     if (strlen(result) != 6)
     {
         killTheProgram(ERROR_OTP_WRONG_LENGTH); // Kill the process if totp result is not 6-digit.
@@ -233,7 +242,7 @@ void catchSignal()
 /// "verify" takes one more argument: the TOTP from the user to verify their one time password.
 /// @param argv
 /// @param secret shared key secret
-void argHandler(char **argv, char *secret)
+void argHandler(int argc, char **argv, char *secret)
 {
     if (strcmp(argv[1], "test") == 0)
     {
@@ -242,21 +251,47 @@ void argHandler(char **argv, char *secret)
     else if (strcmp(argv[1], "verify") == 0)
     {
         // argv[2] should be totp value.
-        // TODO: Do error handling. If the totp is not 6-length etc.
         if (argv[2] == NULL)
         {
             killTheProgram(ERROR_WRONG_ARGUMENT);
         }
-        verifyTOTP(secret, T0, X, argv[2]);
+        if (argc > 3)
+        {
+            char *userProvidedKey = argv[2];
+            verifyTOTP(userProvidedKey, T0, X, argv[3]);
+        }
+        else
+            verifyTOTP(secret, T0, X, argv[2]);
+    }
+    else if (strcmp(argv[1], "key") == 0)
+    {
+        // argv[2] should be a key value.
+        if (argv[2] == NULL)
+        {
+            killTheProgram(ERROR_WRONG_ARGUMENT);
+        }
+        char *userProvidedKey = argv[2];
+        UIMessages();
+        double time_step = (double)X;
+        totpLoop(userProvidedKey, time_step);
     }
     else
     {
         killTheProgram(ERROR_WRONG_ARGUMENT);
     }
 }
-/// @brief
+
+void UIMessages()
+{
+    printf("To stop the program use SIGINT signal in terminal (ctrl + c)\n");
+    printf("To use the test values provided in the paper run the code with argument 'test' (e.g ./totp test)\n");
+    printf("To verify the totp value run the code with the argument 'verify' (e.g ./totp verify 635533)\n");
+    printf("To generate a totp with a your custom key please run the code with argument 'key [your key]' (e.g ./totp key 12345677890)\n");
+    printf("If you used a custom key, use 'verify [your key] [your totp]' (e.g ./totp verify 12345677890 612211)\n\n");
+}
+/// @brief while loop
 /// @param secret shared secret key
-/// @param time_step
+/// @param time_step represents the time step in seconds, data type is double instead of long to keep track of the time.
 void totpLoop(char *secret, double time_step)
 {
     double time_spent;
@@ -303,11 +338,12 @@ int main(int argc, char **argv)
 
     if (argc > 1)
     {
-        argHandler(argv, secret);
+        argHandler(argc, argv, secret);
     }
     else
     {
-        double time_step = 30.0;
+        UIMessages();
+        double time_step = (double)X;
         totpLoop(secret, time_step);
         puts("\nStopped by signal `SIGINT'");
     }
