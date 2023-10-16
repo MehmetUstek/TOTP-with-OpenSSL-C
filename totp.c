@@ -12,7 +12,7 @@ void longToHex(time_t unix_time, int64_t T0, int64_t X, char *steps);
 void hexToByteArray(const char *hex, unsigned char *val);
 unsigned char *mx_hmac_sha256(const void *key, int keylen, const unsigned char *data, int datalen,
                               unsigned char *result, unsigned int *resultlen);
-unsigned char *hmac_result(unsigned char *key, const unsigned char *msg);
+unsigned char *hmac_result(unsigned char *key, const unsigned char *msg, int keylen, int msglen);
 void generateTOTP(char *key, time_t time, int codeDigits, int64_t T0, int64_t X,
                   char result[7]);
 
@@ -37,10 +37,8 @@ unsigned char *mx_hmac_sha256(const void *key, int keylen,
 }
 
 // TODO: Error Handling
-unsigned char *hmac_result(unsigned char *key, const unsigned char *msg)
+unsigned char *hmac_result(unsigned char *key, const unsigned char *msg, int keylen, int msglen)
 {
-    int keylen = strlen(key);
-    int msglen = strlen((char *)msg);
     unsigned char *result = NULL;
     unsigned int resultlen = -1;
 
@@ -71,7 +69,6 @@ void hexToByteArray(const char *hex, unsigned char *val)
 
     strcpy(inputHex, "0x");
     strcat(inputHex, hex);
-    size_t length = strlen(hex);
     // val = (unsigned char *)calloc(length, sizeof(char));
     int startIndex = 0;
     while (hex[startIndex] == '0' && startIndex < strlen(hex) - 1)
@@ -83,36 +80,26 @@ void hexToByteArray(const char *hex, unsigned char *val)
         startIndex--;
     }
 
-    const char *pos = hex + startIndex;
-    // unsigned char val[length];
-    // val[length];
-    // *val = malloc(length);
+    const char *pos = inputHex;
     if (val == NULL)
     {
-        // Handle memory allocation failure
         free(inputHex);
     }
-    /* WARNING: no sanitization or error-checking whatsoever */
-
-    ////TODO: 141'i atlıyor ama okay gibi.
+    size_t length = strlen(inputHex) / 2;
 
     for (size_t count = 0; count < length; count++)
     {
-        sscanf(pos, "%2hhx", &val[count]);
+
+        sscanf(pos, "%02hhx", &val[count]);
         pos += 2;
     }
-    // for (size_t i = 0; i < length; i += 2)
+    // if (length > 0)
     // {
-    //     char byteString[3]; // Two characters for the byte plus null terminator
-    //     strncpy(byteString, inputHex + i, 2);
-    //     byteString[2] = '\0'; // Null terminator
-    //     unsigned char byteValue = strtol(byteString, NULL, 16);
-    //     val[i / 2] = byteValue;
+    //     for (size_t i = 0; i < length; i++)
+    //     {
+    //         printf("%02x ", val[i]);
+    //     }
     // }
-    if (strlen(val) > 1)
-    {
-        printf("Yes");
-    }
 
     free(inputHex);
 }
@@ -129,13 +116,18 @@ void generateTOTP(char *key,
     char steps[17]; // This steps replaces the 'time' variable in the documentation.
     longToHex(time, T0, X, steps);
     // Get the HEX in a Byte[]
-    unsigned char *msg = (unsigned char *)malloc((strlen(steps) + 3) / 2);
+    int msglen = (strlen(steps) + 3) / 2;
+    unsigned char *msg = (unsigned char *)malloc(msglen);
     hexToByteArray(steps, msg);
+    for (size_t i = 0; i < (strlen(steps) + 3) / 2; i++)
+    {
+        printf("msg: %02x ", msg[i]);
+    }
 
-    unsigned char k[(strlen(key) + 3) / 2];
-
+    int keylen = (strlen(steps) + 3) / 2;
+    unsigned char *k = (unsigned char *)malloc(keylen);
     hexToByteArray(key, k);
-    const unsigned char *hash = hmac_result(k, msg);
+    const unsigned char *hash = hmac_result(k, msg, keylen, msglen);
     // put selected bytes into result int
     int offset = hash[strlen(hash) - 1] & 0xf;
     int binary =
@@ -200,7 +192,8 @@ int main(int argc, char **argv)
             {
                 // Clean the console and write the new remaining value.
                 printf("");
-                printf("\033[A\33[2K\r\033[A\33[2K\r Remaining time: %d seconds\t Your TOTP:%s\n", (int)round(time_step - time_spent), result);
+                printf(" Remaining time: %d seconds\t Your TOTP:%s\n", (int)round(time_step - time_spent), result);
+                //\033[A\33[2K\r\033[A\33[2K\r
                 last_time = time_spent;
                 verifyTOTP();
             }
