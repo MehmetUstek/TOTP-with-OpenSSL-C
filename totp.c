@@ -95,9 +95,23 @@ void hexToByteArray(const char *hex, unsigned char *val)
     // free(inputHex);
 }
 
-void verifyTOTP()
+void verifyTOTP(char *key, int64_t T0, int64_t X, char *totp)
 {
-    puts("Verify Code:");
+    time_t currentTime;
+    time(&currentTime);
+    time_t previous_time_step = currentTime - X;
+    char result[7];
+    char previous_result[7];
+    generateTOTP(key, previous_time_step, 6, T0, X, previous_result);
+    generateTOTP(key, currentTime, 6, T0, X, result);
+    if (strcmp(totp, result) == 0 || strcmp(totp, previous_result) == 0)
+    {
+        printf("TOTP Verified");
+    }
+    else
+    {
+        printf("Wrong TOTP");
+    }
 }
 void generateTOTP(char *key,
                   time_t time, // I choose not to implement time as a hex string as it is on the documentation, because I find it more confusing.
@@ -155,15 +169,27 @@ void catchSignal()
 int main(int argc, char **argv)
 {
     catchSignal();
+    char *seed32 = "12345678901234567890";
+
+    int64_t T0 = 0;
+    int64_t X = 30;
+
     if (argc > 1)
     {
         if (strcmp(argv[1], "test") == 0)
+        {
             test();
+        }
+        else if (strcmp(argv[1], "verify") == 0)
+        {
+            // argv[2] should be totp.
+            // TODO: Do error handling. If the totp is not 6-length etc.
+            verifyTOTP(seed32, T0, X, argv[2]);
+        }
     }
     else
     {
         // Seed for HMAC-SHA256 - 32 bytes
-        char *seed32 = "12345678901234567890";
 
         time_t start;
         double time_step = 30.0;
@@ -171,9 +197,7 @@ int main(int argc, char **argv)
         double last_time = 0.0;
         time(&start);
 
-        int64_t T0 = 0;
-        int64_t X = 30;
-        printf("Current Time as unix time:%ld\n", start);
+        // printf("Current Time as unix time:%ld\n", start);
 
         char result[7];
         // generateTOTP(seed32, unix_time, 6, T0, X, result);
@@ -184,7 +208,7 @@ int main(int argc, char **argv)
         while (keepRunning)
         {
             time(&start);
-            generateTOTP(seed32, 1111111109L, 6, T0, X, result);
+            generateTOTP(seed32, currentTime, 6, T0, X, result);
             do
             {
                 time(&currentTime);
@@ -194,10 +218,12 @@ int main(int argc, char **argv)
                 {
                     // Clean the console and write the new remaining value.
                     printf("");
-                    printf("\033[A\33[2K\r\033[A\33[2K\r Remaining time: %d seconds\t Your TOTP:%s\n", (int)round(time_step - time_spent), result);
+                    printf("\033[A\33[2K\r Remaining time: %d seconds\t Your TOTP:%s\n", (int)round(time_step - time_spent), result);
                     //\033[A\33[2K\r\033[A\33[2K\r
+                    // \033[A: Move the cursor up one line
+                    // \33[2K: Clear the current line.
+                    // \r: Move the cursor to the beginning of the line.
                     last_time = time_spent;
-                    verifyTOTP();
                 }
             } while ((time_spent < time_step) && keepRunning);
             // Generate a new TOTP, and continue.
