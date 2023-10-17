@@ -6,20 +6,27 @@
 #include <openssl/hmac.h>
 #include <signal.h>
 #include <stdlib.h>
+#include <ctype.h>
 
+// Error definitions
 #define ERROR_OTP_WRONG_LENGTH 1
 #define ERROR_OTP_INPUT_WRONG_LENGTH 2
 #define ERROR_WRONG_ARGUMENT 3
+#define ERROR_MEMORY_ALLOCATION 4
+#define ERROR_BYTE_ARRAY_CONVERSION 5
+#define ERROR_HMAC_RESULT_NULL 6
+#define ERROR_TIME_HEX_WRONG_FORMAT 7
+#define ERROR_OTP_INPUT_NOT_ALL_DIGIT 8
 
 // Forward declarations
+void killTheProgram(int exitCode);
 unsigned char *getHMAC(const void *key, size_t keylen, const unsigned char *data, size_t msglen,
                        unsigned char *result, unsigned int *resultlen);
 unsigned char *hmac_result(unsigned char *key, const unsigned char *msg, size_t keylen, size_t msglen);
 void longToHex(time_t unix_time, int64_t T0, int64_t X, char *steps);
 void hexToByteArray(const char *hex, unsigned char *val);
 void verifyTOTP(char *key, int64_t T0, int64_t X, char *totp);
-void generateTOTP(char *key, time_t time, int codeDigits, int64_t T0, int64_t X,
-                  char result[7]);
+void generateTOTP(char *key, time_t time, int codeDigits, int64_t T0, int64_t X, char result[7]);
 void test();
 void catchSignal();
 void argHandler(int argc, char **argv, char *secret);
@@ -39,13 +46,30 @@ void killTheProgram(int exitCode)
     switch (exitCode)
     {
     case ERROR_OTP_WRONG_LENGTH:
-        printf("The output otp is at wrong length");
+        printf("\033[31mThe output otp is at wrong length\033[0m\n");
         break;
     case ERROR_OTP_INPUT_WRONG_LENGTH:
-        printf("The input otp is at wrong length");
+        printf("\033[31mThe input otp is at wrong length\033[0m\n");
+        UIMessages();
         break;
     case ERROR_WRONG_ARGUMENT:
-        printf("Wrong arguments are given to the terminal. To generate a totp, please run the code without arguments.\n");
+        printf("\033[31mWrong arguments are given to the terminal. To generate a totp, please run the code without arguments.\033[0m\n");
+        UIMessages();
+        break;
+    case ERROR_MEMORY_ALLOCATION:
+        printf("\033[31mMemory allocation failure.\033[0m\n");
+        break;
+    case ERROR_BYTE_ARRAY_CONVERSION:
+        printf("\033[31mHex string to byte array failure.\033[0m\n");
+        break;
+    case ERROR_HMAC_RESULT_NULL:
+        printf("\033[31mHMAC result is null\033[0m\n");
+        break;
+    case ERROR_TIME_HEX_WRONG_FORMAT:
+        printf("\033[31mTime long to hex value output was at the wrong format.\033[0m\n");
+        break;
+    case ERROR_OTP_INPUT_NOT_ALL_DIGIT:
+        printf("\033[31mThe input otp contains invalid (non-digit) values.\033[0m\n");
         UIMessages();
         break;
 
@@ -56,7 +80,7 @@ void killTheProgram(int exitCode)
     exit(EXIT_FAILURE);
 }
 
-/// @brief
+/// @brief stops the program if encountered with a SIGINT signal.
 /// @param _
 static void sig_handler(int _)
 {
@@ -111,7 +135,10 @@ void longToHex(time_t unix_time, int64_t T0, int64_t X, char *steps)
     int64_t T = (unix_time - T0) / X;
     // zero-padding to fill 16 bytes, convert from long to hexadecimal.
     snprintf(steps, 17, "%016lX", T);
-    // printf("Hexadecimal string: %s\n", steps);
+    if (strlen(steps) != 16)
+    {
+        killTheProgram(ERROR_TIME_HEX_WRONG_FORMAT);
+    }
 }
 
 /// @brief Converts hex value to byte array in the same way the rfc6238 algorithm does.
@@ -135,7 +162,8 @@ void hexToByteArray(const char *hex, unsigned char *val)
 /// I decided to include one time-step backward with the following advice from the paper on mind.
 /// "We recommend that the validator be set with a specific limit to the number of time steps a prover can be
 /// "out of synch" before being rejected."
-/// The reason I accept backward time-step is that the user have to open up new terminal or to verify.
+/// The reason I accept backward time-step is that the user have to open up new terminal or restart the terminal
+/// to verify their totp, which could be time consuming.
 /// @param key shared secret key
 /// @param T0 is the Unix time to start counting time steps
 /// @param X represents the time step in seconds
@@ -144,7 +172,14 @@ void verifyTOTP(char *key, int64_t T0, int64_t X, char *totp)
 {
     if (strlen(totp) != 6)
     {
-        killTheProgram(ERROR_OTP_WRONG_LENGTH);
+        killTheProgram(ERROR_OTP_INPUT_WRONG_LENGTH);
+    }
+    for (int i = 0; i < 6; ++i)
+    {
+        if (!isdigit(totp[i]))
+        {
+            killTheProgram(ERROR_OTP_INPUT_NOT_ALL_DIGIT);
+        }
     }
     time_t currentTime;
     time(&currentTime);
@@ -181,21 +216,29 @@ void generateTOTP(char *key,
     longToHex(time, T0, X, steps);                        // T value to 16-digit long zero-padded hex string
     size_t msglen = ((strlen(steps) + 1) / 2);            // Could be +1 not sure.
     unsigned char *msg = (unsigned char *)malloc(msglen); // Byte array version of the formatted T value.
+
+    size_t keylen = ((strlen(key) + 1) / 2);
+    unsigned char *k = (unsigned char *)malloc(keylen); // Byte array version of the key value.
+    if (msg == NULL || k == NULL)
+    {
+        killTheProgram(ERROR_MEMORY_ALLOCATION);
+    }
+
     hexToByteArray(steps, msg);
+    hexToByteArray(key, k);
+    if (k == NULL || msg == NULL)
+    {
+        killTheProgram(ERROR_BYTE_ARRAY_CONVERSION);
+    }
+    const unsigned char *hash = hmac_result(k, msg, keylen, msglen); // Calculated HMAC
     // for (size_t i = 0; i < (strlen(steps) + 3) / 2; i++)
     // {
     //     printf("msg: %02x ", msg[i]);
     // }
-
-    size_t keylen = ((strlen(key) + 1) / 2);
-    unsigned char *k = (unsigned char *)malloc(keylen); // Byte array version of the key value.
-    hexToByteArray(key, k);
-    const unsigned char *hash = hmac_result(k, msg, keylen, msglen); // Calculated HMAC
-    // if (hash < 0)
-    // {
-    //     killTheProgram();
-    // }
-    // put selected bytes into result int
+    if (hash == NULL)
+    {
+        killTheProgram(ERROR_HMAC_RESULT_NULL);
+    }
 
     // Same variable calculations with RFC6238 algorithm
     // 0xf is hex rep of 0000 1111. This calculation simply gets the last character (or the last byte)
@@ -215,6 +258,8 @@ void generateTOTP(char *key,
     }
     free(msg); // Freeing the memory allocations to prevent data leakage.
     free(k);
+    msg = NULL;
+    k = NULL;
 }
 
 /// @brief Test with the values given in the last page of rfc6238 paper.
@@ -275,21 +320,17 @@ void argHandler(int argc, char **argv, char *secret)
         double time_step = (double)X;
         totpLoop(userProvidedKey, time_step);
     }
+    else if (strcmp(argv[1], "help") == 0)
+    {
+        UIMessages();
+    }
     else
     {
         killTheProgram(ERROR_WRONG_ARGUMENT);
     }
 }
 
-void UIMessages()
-{
-    printf("To stop the program use SIGINT signal in terminal (ctrl + c)\n");
-    printf("To use the test values provided in the paper run the code with argument 'test' (e.g ./totp test)\n");
-    printf("To verify the totp value run the code with the argument 'verify' (e.g ./totp verify 635533)\n");
-    printf("To generate a totp with a your custom key please run the code with argument 'key [your key]' (e.g ./totp key 12345677890)\n");
-    printf("If you used a custom key, use 'verify [your key] [your totp]' (e.g ./totp verify 12345677890 612211)\n\n");
-}
-/// @brief while loop
+/// @brief While this loop keeps running, continue to display and generate totp values every 30 seconds.
 /// @param secret shared secret key
 /// @param time_step represents the time step in seconds, data type is double instead of long to keep track of the time.
 void totpLoop(char *secret, double time_step)
@@ -311,8 +352,7 @@ void totpLoop(char *secret, double time_step)
         do
         {
             time(&currentTime);
-            /* Get CPU time since loop started */
-            time_spent = (double)difftime(currentTime, start);
+            time_spent = (double)difftime(currentTime, start); // Get unix time difference.
             if (time_spent - last_time >= 1.0)
             {
                 // Clean the console and write the new remaining value.
@@ -324,17 +364,26 @@ void totpLoop(char *secret, double time_step)
             }
         } while ((time_spent < time_step) && keepRunning);
         strcpy(result, "");
-        time(&currentTime);
-        // printf("Current Time: %ld", currentTime);
+        time(&currentTime); // Take the current time again and start over in the 30 seconds.
         time_spent = 0.0;
         last_time = 0.0;
     }
 }
-
+/// @brief Printing program capabilities to the terminal.
+void UIMessages()
+{
+    printf("To stop the program use SIGINT signal in terminal (ctrl + c)\n");
+    printf("To generate a TOTP using the default key, simply run: './totp'\n");
+    printf("To use the test values provided in the paper run the code with argument 'test' (e.g ./totp test)\n");
+    printf("To verify the totp value run the code with the argument 'verify' (e.g ./totp verify 635533)\n");
+    printf("To generate a totp with a your custom key please run the code with argument 'key [your key]' (e.g ./totp key 12345677890)\n");
+    printf("If you used a custom key, use 'verify [your key] [your totp]' (e.g ./totp verify 12345677890 612211)\n\n");
+}
 int main(int argc, char **argv)
 {
-    catchSignal();
-    char *secret = "12345678901234567890";
+    catchSignal(); // Stop the program with ctrl + c input.
+    // Seed for HMAC-SHA512 - 64 bytes, gathered from the paper.
+    char *secret = "313233343536373839303132333435363738393031323334353637383930313233343536373839303132333435363738393031323334353637383930";
 
     if (argc > 1)
     {
