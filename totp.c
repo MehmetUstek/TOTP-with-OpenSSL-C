@@ -1,22 +1,22 @@
-#include <stdio.h>
-#include <string.h>
-#include <time.h>
-#include <math.h>
-#include <openssl/evp.h>
-#include <openssl/hmac.h>
-#include <signal.h>
-#include <stdlib.h>
-#include <ctype.h>
+#include <stdio.h>        // Standard IO library header
+#include <string.h>       // Provides functions to work with strings
+#include <time.h>         // Provides functions to implement a unix timer.
+#include <math.h>         // Provides mathematical functions (e.g round)
+#include <openssl/evp.h>  // Header for the OpenSSL EVP library (used for generating sha3-512 hash)
+#include <openssl/hmac.h> // Header for the OpenSSL HMAC library (used for generating HMAC value)
+#include <signal.h>       // Header for handling input signals such as SIGINT.
+#include <stdlib.h>       // Standard library header for memory allocation
+#include <ctype.h>        // Standard library header for character type checking (e.g isdigit, isalpha)
 
 // Error definitions
-#define ERROR_OTP_WRONG_LENGTH 1
-#define ERROR_OTP_INPUT_WRONG_LENGTH 2
-#define ERROR_WRONG_ARGUMENT 3
-#define ERROR_MEMORY_ALLOCATION 4
-#define ERROR_BYTE_ARRAY_CONVERSION 5
-#define ERROR_HMAC_RESULT_NULL 6
-#define ERROR_TIME_HEX_WRONG_FORMAT 7
-#define ERROR_OTP_INPUT_NOT_ALL_DIGIT 8
+#define ERROR_OTP_WRONG_LENGTH 1        // Output OTP is at wrong length (should be 6)
+#define ERROR_OTP_INPUT_WRONG_LENGTH 2  // Input TOTP to verify is provided with a wrong length (should be 6)
+#define ERROR_WRONG_ARGUMENT 3          // The argument given to the terminal is undefined, unknown or typed incorrectly
+#define ERROR_MEMORY_ALLOCATION 4       // Memory allocation error when malloc() is called
+#define ERROR_BYTE_ARRAY_CONVERSION 5   // Error occurred at converting hex string to byte array
+#define ERROR_HMAC_RESULT_NULL 6        // Result of the HMAC was null
+#define ERROR_TIME_HEX_WRONG_FORMAT 7   // The unix time to hex string conversion did not output 16-digit long string.
+#define ERROR_OTP_INPUT_NOT_ALL_DIGIT 8 // Input TOTP to verify is provided with a wrong format (should be all digits)
 
 // Forward declarations
 void killTheProgram(int exitCode);
@@ -92,8 +92,8 @@ static void sig_handler(int _)
 /// @param keylen
 /// @param msg byte array version of the formatted T value.
 /// @param msglen
-/// @param result
-/// @param resultlen
+/// @param result HMAC result
+/// @param resultlen HMAC result length
 /// @return hash value of HMAC algorithm.
 unsigned char *getHMAC(const void *key, size_t keylen,
                        const unsigned char *msg, size_t msglen,
@@ -112,9 +112,6 @@ unsigned char *getHMAC(const void *key, size_t keylen,
 /// @return hash value of HMAC algorithm. 64 bytes for HMAC-sha512, 32 bytes for HMAC-sha256
 unsigned char *hmac_result(unsigned char *key, const unsigned char *msg, size_t keylen, size_t msglen)
 {
-    // int length = sizeof(msg) / sizeof(msg[0]);
-    // int lkength = sizeof(key) / sizeof(key[0]);
-    // size_t keykklen = strlen(key);
     unsigned char *result = NULL;
     unsigned int resultlen = -1;
 
@@ -231,10 +228,7 @@ void generateTOTP(char *key,
         killTheProgram(ERROR_BYTE_ARRAY_CONVERSION);
     }
     const unsigned char *hash = hmac_result(k, msg, keylen, msglen); // Calculated HMAC
-    // for (size_t i = 0; i < (strlen(steps) + 3) / 2; i++)
-    // {
-    //     printf("msg: %02x ", msg[i]);
-    // }
+
     if (hash == NULL)
     {
         killTheProgram(ERROR_HMAC_RESULT_NULL);

@@ -1,11 +1,26 @@
 # Time Based One Time Password C Implementation
 
 ## Running instructions
+### Dependencies
 To run the code, OpenSSL library and its sublibraries are a must. (EVP, HMac)<br/>
+Must-have header files include:
+* <stdio.h>
+* <string.h>
+* <time.h>
+* <math.h>
+* <openssl/evp.h>
+* <openssl/hmac.h>
+* <signal.h>
+* <stdlib.h>
+* <ctype.h> <br/><br/>
 This code was written and tested in Kali Linux with openssl version OpenSSL 3.0.10<br/>
 
 ### To compile the code:
 gcc -o totp totp.c -lm -lcrypto<br/>
+Or simply; <br/>
+run 'make' in the terminal<br/>
+### To delete the binary file:
+run 'make clean' in the terminal<br/>
 ### To see the possible commands on terminal
 Run "./totp help"<br/>
 ### To generate a TOTP with the default key
