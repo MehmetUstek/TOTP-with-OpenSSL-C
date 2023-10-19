@@ -34,10 +34,10 @@ void totpLoop(const EVP_MD *evp_crypto, char *secret, double time_step);
 void UIMessages();
 
 /// Constant or predefined variable declarations
-static int DIGITS_POWER[] = {1, 10, 100, 1000, 10000, 100000, 1000000, 10000000, 100000000};
-static volatile sig_atomic_t keepRunning = 1;
-long T0 = 0;
-long X = 30;
+static int DIGITS_POWER[] = {1, 10, 100, 1000, 10000, 100000, 1000000, 10000000, 100000000}; // Numbers to divide the binary to output the TOTP with correct number of digits
+static volatile sig_atomic_t keepRunning = 1;                                                // keep running boolean
+long T0 = 0;                                                                                 // Default Unix time to start counting time steps
+long X = 30;                                                                                 // Default time step in seconds
 
 /// @brief Kills the process if encountered with an error.
 /// @param exitCode
@@ -252,7 +252,8 @@ void generateTOTP(const EVP_MD *evp_crypto, char *key,
     {
         killTheProgram(ERROR_OTP_WRONG_LENGTH); // Kill the process if totp result is not 6-digit.
     }
-    free(msg); // Freeing the memory allocations to prevent data leakage.
+    // Freeing the memory allocations to prevent data leakage.
+    free(msg);
     free(k);
     msg = NULL;
     k = NULL;
