@@ -7,6 +7,7 @@
 #include <signal.h>       // Header for handling input signals such as SIGINT.
 #include <stdlib.h>       // Standard library header for memory allocation
 #include <ctype.h>        // Standard library header for character type checking (e.g isdigit, isalpha)
+#include <openssl/rand.h> // OpenSSL Random Library to generate random key
 
 // Error definitions
 #define ERROR_OTP_WRONG_LENGTH 1        // Output OTP is at wrong length (should be 6)
@@ -17,6 +18,8 @@
 #define ERROR_HMAC_RESULT_NULL 6        // Result of the HMAC was null
 #define ERROR_TIME_HEX_WRONG_FORMAT 7   // The unix time to hex string conversion did not output 16-digit long string.
 #define ERROR_OTP_INPUT_NOT_ALL_DIGIT 8 // Input TOTP to verify is provided with a wrong format (should be all digits)
+#define ERROR_RANDOM_BYTE_GENERATION 9  // Error occurred on generating random byte array.
+#define ERROR_KEY_WRONG_NUMBER_DIGITS 10
 
 // Forward declarations
 void killTheProgram(int exitCode);
@@ -32,6 +35,7 @@ void catchSignal();
 void argHandler(const EVP_MD *evp_crypto, int argc, char **argv, char *secret);
 void totpLoop(const EVP_MD *evp_crypto, char *secret, double time_step);
 void UIMessages();
+void generateRandomKey();
 
 /// Constant or predefined variable declarations
 static int DIGITS_POWER[] = {1, 10, 100, 1000, 10000, 100000, 1000000, 10000000, 100000000}; // Numbers to divide the binary to output the TOTP with correct number of digits
@@ -70,6 +74,14 @@ void killTheProgram(int exitCode)
         break;
     case ERROR_OTP_INPUT_NOT_ALL_DIGIT:
         printf("\033[31mThe input otp contains invalid (non-digit) values.\033[0m\n");
+        UIMessages();
+        break;
+    case ERROR_RANDOM_BYTE_GENERATION:
+        printf("\033[31mAn error occurred during the byte array generation.\033[0m\n");
+        UIMessages();
+        break;
+    case ERROR_KEY_WRONG_NUMBER_DIGITS:
+        printf("\033[31mOutput random key is at wrong length. \033[0m\n");
         UIMessages();
         break;
 
@@ -269,8 +281,8 @@ void test()
     long testTime[] = {59L, 1111111109L, 1111111111L, 1234567890L, 2000000000L, 20000000000L}; // Test values from the paper.
     long T0 = 0;
     long X = 30;
-    printf("Test with sha-1, secret:12345678901234567890");
-    for (int i = 0; i < 6; i++)
+    printf("Test with sha-1, secret:12345678901234567890\n");
+    for (int i = 0; i < 6; ++i)
     {
         char result[7];
         generateTOTP(evp_crypto, secret, testTime[i], 6, T0, X, result);
@@ -325,6 +337,10 @@ void argHandler(const EVP_MD *evp_crypto, int argc, char **argv, char *secret)
     {
         UIMessages();
     }
+    else if (strcmp(argv[1], "generateRandomKey") == 0)
+    {
+        generateRandomKey();
+    }
     else
     {
         killTheProgram(ERROR_WRONG_ARGUMENT); // Kill the program if the argument given to the console was unknown
@@ -375,11 +391,39 @@ void UIMessages()
 {
     printf("To stop the program use SIGINT signal in terminal (ctrl + c)\n");
     printf("To generate a TOTP using the default key, simply run: './totp'\n");
+    printf("\033[33mDefault key is not recommended, use your own key or generate a random key with './totp generateRandomKey'\033[0m\n");
     printf("To use the test values provided in the paper run the code with argument 'test' (e.g ./totp test)\n");
     printf("To verify the totp value run the code with the argument 'verify' (e.g ./totp verify 635533)\n");
-    printf("To generate a totp with a your custom key please run the code with argument 'key [your key]' (e.g ./totp key 12345677890)\n");
+    printf("\033[33mTo generate a totp with a your custom key please run the code with argument 'key [your key]' (e.g ./totp key 12345677890)\033[0m\n");
     printf("If you used a custom key, use 'verify [your key] [your totp]' (e.g ./totp verify 12345677890 612211)\n\n");
 }
+
+/// @brief This function will generate 32-byte byte array and then convert it to 64 character hexadecimal string
+/// Outputting 64-byte
+void generateRandomKey()
+{
+    int keyNumberOfBytes = 32;                  // 32 byte array to generate 64 character hexa string.
+    char randomByteArray[keyNumberOfBytes + 1]; // +1 Null terminator.
+
+    int isRandomBytesGenerated = RAND_bytes(randomByteArray, keyNumberOfBytes); // int RAND_bytes(unsigned char *buf, int num); Stores in buf.
+    if (!isRandomBytesGenerated)                                                // If the isRandomBytesGenerated is 1, there was no error in RAND_bytes function.
+    {
+        killTheProgram(ERROR_RANDOM_BYTE_GENERATION); // Kill the program if RAND_bytes gives an error
+    }
+    char hexaString[keyNumberOfBytes * 2 + 1]; // One byte = Two hex characters. +1 Null terminator
+    for (int i = 0; i < keyNumberOfBytes; ++i)
+    {
+        sprintf(&hexaString[i * 2], "%02x", randomByteArray[i]); // Pad with zero, write 2 characters at each iteration from the randomByteArray to hexaString
+    }
+    hexaString[keyNumberOfBytes * 2] = '\0'; // Close the string with the null terminator
+    if (strlen(hexaString) != 64)
+    {
+        killTheProgram(ERROR_KEY_WRONG_NUMBER_DIGITS); // Kill the program if the output random key is not 64-character long.
+    }
+
+    printf("Generated random key: %s\n", hexaString);
+}
+
 int main(int argc, char **argv)
 {
     catchSignal(); // Stop the program with ctrl + c input.
