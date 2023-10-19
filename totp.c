@@ -20,24 +20,24 @@
 
 // Forward declarations
 void killTheProgram(int exitCode);
-unsigned char *getHMAC(const void *key, size_t keylen, const unsigned char *data, size_t msglen,
+unsigned char *getHMAC(const EVP_MD *evp_crypto, const void *key, size_t keylen, const unsigned char *data, size_t msglen,
                        unsigned char *result, unsigned int *resultlen);
-unsigned char *hmac_result(unsigned char *key, const unsigned char *msg, size_t keylen, size_t msglen);
-void longToHex(time_t unix_time, int64_t T0, int64_t X, char *steps);
+unsigned char *hmac_result(const EVP_MD *evp_crypto, unsigned char *key, const unsigned char *msg, size_t keylen, size_t msglen);
+void longToHex(long unix_time, long T0, long X, char *steps);
 void hexToByteArray(const char *hex, unsigned char *val);
-void verifyTOTP(char *key, int64_t T0, int64_t X, char *totp);
-void generateTOTP(char *key, time_t time, int codeDigits, int64_t T0, int64_t X, char result[7]);
+void verifyTOTP(const EVP_MD *evp_crypto, char *key, long T0, long X, char *totp);
+void generateTOTP(const EVP_MD *evp_crypto, char *key, time_t time, int codeDigits, long T0, long X, char result[7]);
 void test();
 void catchSignal();
-void argHandler(int argc, char **argv, char *secret);
-void totpLoop(char *secret, double time_step);
+void argHandler(const EVP_MD *evp_crypto, int argc, char **argv, char *secret);
+void totpLoop(const EVP_MD *evp_crypto, char *secret, double time_step);
 void UIMessages();
 
 /// Constant or predefined variable declarations
 static int DIGITS_POWER[] = {1, 10, 100, 1000, 10000, 100000, 1000000, 10000000, 100000000};
 static volatile sig_atomic_t keepRunning = 1;
-int64_t T0 = 0;
-int64_t X = 30;
+long T0 = 0;
+long X = 30;
 
 /// @brief Kills the process if encountered with an error.
 /// @param exitCode
@@ -95,14 +95,12 @@ static void sig_handler(int _)
 /// @param result HMAC result
 /// @param resultlen HMAC result length
 /// @return hash value of HMAC algorithm.
-unsigned char *getHMAC(const void *key, size_t keylen,
+unsigned char *getHMAC(const EVP_MD *evp_crypto, const void *key, size_t keylen,
                        const unsigned char *msg, size_t msglen,
                        unsigned char *result, unsigned int *resultlen)
 {
-    return HMAC(EVP_sha3_512(), key, keylen, msg, msglen, result, resultlen);
+    return HMAC(evp_crypto, key, keylen, msg, msglen, result, resultlen);
 }
-
-// TODO: Error Handling
 
 /// @brief
 /// @param key byte array version of the shared secret key
@@ -110,12 +108,12 @@ unsigned char *getHMAC(const void *key, size_t keylen,
 /// @param keylen
 /// @param msglen
 /// @return hash value of HMAC algorithm. 64 bytes for HMAC-sha512, 32 bytes for HMAC-sha256
-unsigned char *hmac_result(unsigned char *key, const unsigned char *msg, size_t keylen, size_t msglen)
+unsigned char *hmac_result(const EVP_MD *evp_crypto, unsigned char *key, const unsigned char *msg, size_t keylen, size_t msglen)
 {
     unsigned char *result = NULL;
     unsigned int resultlen = -1;
 
-    result = getHMAC((const void *)key, keylen, msg, msglen, result, &resultlen);
+    result = getHMAC(evp_crypto, (const void *)key, keylen, msg, msglen, result, &resultlen);
     return result;
 }
 /// @brief Converts long value T to hex string. Applies left zero-padding to fill 16 bytes.
@@ -127,14 +125,15 @@ unsigned char *hmac_result(unsigned char *key, const unsigned char *msg, size_t 
 /// @var T is an integer and represents the number of time steps between the initial counter
 //  time T0 and the current Unix time.
 /// @param steps is the address of the 16 digit-long zero-padded (if necessary) T value.
-void longToHex(time_t unix_time, int64_t T0, int64_t X, char *steps)
+void longToHex(long unix_time, long T0, long X, char *steps)
 {
-    int64_t T = (unix_time - T0) / X;
+    long T = (unix_time - T0) / X;
     // zero-padding to fill 16 bytes, convert from long to hexadecimal.
-    snprintf(steps, 17, "%016lX", T);
+    // 0: zero padding, 16: minimum width, l: input is long,
+    snprintf(steps, 17, "%016lX", T); // X: Format this value to uppercase hexadecimal value.
     if (strlen(steps) != 16)
     {
-        killTheProgram(ERROR_TIME_HEX_WRONG_FORMAT);
+        killTheProgram(ERROR_TIME_HEX_WRONG_FORMAT); // If the output hex string is not zero-padded correctly kill the program.
     }
 }
 
@@ -150,6 +149,8 @@ void hexToByteArray(const char *hex, unsigned char *val)
 
     for (size_t count = 0; count < length; count++)
     {
+        // 0 means pad with zero, 2 means read 2 input characters each time. hh: the input is a character.
+        // x: This character is interpreted/treated as a hexadecimal value.
         sscanf(pos, "%02hhx", &val[count]);
         pos += 2;
     }
@@ -165,13 +166,13 @@ void hexToByteArray(const char *hex, unsigned char *val)
 /// @param T0 is the Unix time to start counting time steps
 /// @param X represents the time step in seconds
 /// @param totp user input to verify time-based one time password.
-void verifyTOTP(char *key, int64_t T0, int64_t X, char *totp)
+void verifyTOTP(const EVP_MD *evp_crypto, char *key, long T0, long X, char *totp)
 {
-    if (strlen(totp) != 6)
+    if (strlen(totp) != 6) // Kill the program if it is not 6-character long.
     {
         killTheProgram(ERROR_OTP_INPUT_WRONG_LENGTH);
     }
-    for (int i = 0; i < 6; ++i)
+    for (int i = 0; i < 6; ++i) // Kill the program if it contains non-digit characters.
     {
         if (!isdigit(totp[i]))
         {
@@ -183,8 +184,9 @@ void verifyTOTP(char *key, int64_t T0, int64_t X, char *totp)
     time_t previous_time_step = currentTime - X;
     char result[7];
     char previous_result[7];
-    generateTOTP(key, previous_time_step, 6, T0, X, previous_result);
-    generateTOTP(key, currentTime, 6, T0, X, result);
+
+    generateTOTP(evp_crypto, key, previous_time_step, 6, T0, X, previous_result); // Generate TOTP for the previous time_step
+    generateTOTP(evp_crypto, key, currentTime, 6, T0, X, result);                 // Generate TOTP for the current time_step
     if (strcmp(totp, result) == 0 || strcmp(totp, previous_result) == 0)
     {
         printf("TOTP Verified");
@@ -204,40 +206,40 @@ void verifyTOTP(char *key, int64_t T0, int64_t X, char *totp)
 /// @param T0 is the Unix time to start counting time steps
 /// @param X represents the time step in seconds
 /// @param result time based one time password (TOTP)
-void generateTOTP(char *key,
+void generateTOTP(const EVP_MD *evp_crypto, char *key,
                   time_t time,
-                  int codeDigits, int64_t T0, int64_t X,
+                  int codeDigits, long T0, long X,
                   char result[7])
 {
-    char steps[17];                                       // This steps replaces the 'time' variable from the paper
-    longToHex(time, T0, X, steps);                        // T value to 16-digit long zero-padded hex string
-    size_t msglen = ((strlen(steps) + 1) / 2);            // Could be +1 not sure.
-    unsigned char *msg = (unsigned char *)malloc(msglen); // Byte array version of the formatted T value.
+    char steps[17];                // This steps replaces the 'time' variable from the paper
+    longToHex(time, T0, X, steps); // T value to 16-digit long zero-padded hex string
+    // Allocate enough space for msg byte array. There should be 1 byte for every 2 characters of hex string.
+    size_t msglen = ((strlen(steps) + 1) / 2);
+    unsigned char *msg = (unsigned char *)malloc(msglen + 1); // Byte array version of the formatted T value. +1 for null terminator
 
-    size_t keylen = ((strlen(key) + 1) / 2);
-    unsigned char *k = (unsigned char *)malloc(keylen); // Byte array version of the key value.
+    size_t keylen = ((strlen(key) + 1) / 2);                // Allocate enough space for k byte array. There should be 1 byte for every 2 characters of hex string.
+    unsigned char *k = (unsigned char *)malloc(keylen + 1); // Byte array version of the key value. +1 for null terminator
     if (msg == NULL || k == NULL)
     {
-        killTheProgram(ERROR_MEMORY_ALLOCATION);
+        killTheProgram(ERROR_MEMORY_ALLOCATION); // Kill the program if memory allocation failure.
     }
 
-    hexToByteArray(steps, msg);
-    hexToByteArray(key, k);
+    hexToByteArray(steps, msg); // Convert steps hex value to byte array and store it in msg array.
+    hexToByteArray(key, k);     // Convert key hex value to byte array and store it in k array.
     if (k == NULL || msg == NULL)
     {
-        killTheProgram(ERROR_BYTE_ARRAY_CONVERSION);
+        killTheProgram(ERROR_BYTE_ARRAY_CONVERSION); // Kill the program if byte arrays are null.
     }
-    const unsigned char *hash = hmac_result(k, msg, keylen, msglen); // Calculated HMAC
+    const unsigned char *hash = hmac_result(evp_crypto, k, msg, keylen, msglen); // Calculated HMAC
 
     if (hash == NULL)
     {
-        killTheProgram(ERROR_HMAC_RESULT_NULL);
+        killTheProgram(ERROR_HMAC_RESULT_NULL); // Kill the program if hash result is null.
     }
 
     // Same variable calculations with RFC6238 algorithm
     // 0xf is hex rep of 0000 1111. This calculation simply gets the last character (or the last byte)
     // of this hash value and further gets the 4 least significant bits.
-    // The goal here is to provide pseudo-randomness.
     int offset = hash[strlen(hash) - 1] & 0xf;
     int binary =
         ((hash[offset] & 0x7f) << 24) |
@@ -256,17 +258,21 @@ void generateTOTP(char *key,
     k = NULL;
 }
 
-/// @brief Test with the values given in the last page of rfc6238 paper.
+/// @brief Test with the values given in the last page of rfc6238 paper. Test is with sha1.
+/// This test case gives correct values compared to online TOTP generators when they also convert their key to byte array.
+// Normally, only a few of them convert their key values to byte array.
 void test()
 {
+    const EVP_MD *evp_crypto = EVP_sha1();
     char *secret = "12345678901234567890";
-    long testTime[] = {59L, 1111111109L, 1111111111L, 1234567890L, 2000000000L, 20000000000L};
-    int64_t T0 = 0;
-    int64_t X = 30;
+    long testTime[] = {59L, 1111111109L, 1111111111L, 1234567890L, 2000000000L, 20000000000L}; // Test values from the paper.
+    long T0 = 0;
+    long X = 30;
+    printf("Test with sha-1, secret:12345678901234567890");
     for (int i = 0; i < 6; i++)
     {
         char result[7];
-        generateTOTP(secret, testTime[i], 6, T0, X, result);
+        generateTOTP(evp_crypto, secret, testTime[i], 6, T0, X, result);
         printf("TOTP result:%s\n", result);
     }
 }
@@ -281,7 +287,7 @@ void catchSignal()
 /// "verify" takes one more argument: the TOTP from the user to verify their one time password.
 /// @param argv
 /// @param secret shared key secret
-void argHandler(int argc, char **argv, char *secret)
+void argHandler(const EVP_MD *evp_crypto, int argc, char **argv, char *secret)
 {
     if (strcmp(argv[1], "test") == 0)
     {
@@ -292,27 +298,27 @@ void argHandler(int argc, char **argv, char *secret)
         // argv[2] should be totp value.
         if (argv[2] == NULL)
         {
-            killTheProgram(ERROR_WRONG_ARGUMENT);
+            killTheProgram(ERROR_WRONG_ARGUMENT); // Kill the program if TOTP value is not given
         }
         if (argc > 3)
         {
             char *userProvidedKey = argv[2];
-            verifyTOTP(userProvidedKey, T0, X, argv[3]);
+            verifyTOTP(evp_crypto, userProvidedKey, T0, X, argv[3]);
         }
         else
-            verifyTOTP(secret, T0, X, argv[2]);
+            verifyTOTP(evp_crypto, secret, T0, X, argv[2]);
     }
     else if (strcmp(argv[1], "key") == 0)
     {
         // argv[2] should be a key value.
         if (argv[2] == NULL)
         {
-            killTheProgram(ERROR_WRONG_ARGUMENT);
+            killTheProgram(ERROR_WRONG_ARGUMENT); // Kill the program if key value is not given
         }
         char *userProvidedKey = argv[2];
         UIMessages();
         double time_step = (double)X;
-        totpLoop(userProvidedKey, time_step);
+        totpLoop(evp_crypto, userProvidedKey, time_step);
     }
     else if (strcmp(argv[1], "help") == 0)
     {
@@ -320,14 +326,14 @@ void argHandler(int argc, char **argv, char *secret)
     }
     else
     {
-        killTheProgram(ERROR_WRONG_ARGUMENT);
+        killTheProgram(ERROR_WRONG_ARGUMENT); // Kill the program if the argument given to the console was unknown
     }
 }
 
 /// @brief While this loop keeps running, continue to display and generate totp values every 30 seconds.
 /// @param secret shared secret key
 /// @param time_step represents the time step in seconds, data type is double instead of long to keep track of the time.
-void totpLoop(char *secret, double time_step)
+void totpLoop(const EVP_MD *evp_crypto, char *secret, double time_step)
 {
     double time_spent;
     double last_time = 0.0;
@@ -336,18 +342,18 @@ void totpLoop(char *secret, double time_step)
     time_t start;
     time_t currentTime;
 
-    time(&start);
-    time(&currentTime);
+    time(&start);       // Measure the start time at the start of the application
+    time(&currentTime); // Measure the current time at the start of the application
 
     while (keepRunning)
     {
-        time(&start);
-        generateTOTP(secret, currentTime, 6, T0, X, result);
+        time(&start);                                                    // Update the starting time at every new TOTP iteration
+        generateTOTP(evp_crypto, secret, currentTime, 6, T0, X, result); // Generate new TOTP, at every time_step iteration
         do
         {
             time(&currentTime);
             time_spent = (double)difftime(currentTime, start); // Get unix time difference.
-            if (time_spent - last_time >= 1.0)
+            if (time_spent - last_time >= 1.0)                 // Single second update
             {
                 // Clean the console and write the new remaining value.
                 // \033[A: Move the cursor up one line
@@ -356,9 +362,9 @@ void totpLoop(char *secret, double time_step)
                 printf("\033[A\33[2K\r Remaining time: %d seconds\t Your TOTP:%s\n", (int)round(time_step - time_spent), result);
                 last_time = time_spent;
             }
-        } while ((time_spent < time_step) && keepRunning);
-        strcpy(result, "");
-        time(&currentTime); // Take the current time again and start over in the 30 seconds.
+        } while ((time_spent < time_step) && keepRunning); // While the time_spent clock did not hit the time_step period keep the same TOTP, display remaining time
+        strcpy(result, "");                                // Empty the result, just in case
+        time(&currentTime);                                // Take the current time again and start over in the 30 seconds.
         time_spent = 0.0;
         last_time = 0.0;
     }
@@ -376,19 +382,21 @@ void UIMessages()
 int main(int argc, char **argv)
 {
     catchSignal(); // Stop the program with ctrl + c input.
-    // Seed for HMAC-SHA512 - 64 bytes, gathered from the paper.
-    char *secret = "313233343536373839303132333435363738393031323334353637383930313233343536373839303132333435363738393031323334353637383930";
+    // Seeded key secret, gathered from the paper.
+    char *secret = "3132333435363738393031323334353637383930";
+
+    const EVP_MD *evp_crypto = EVP_sha3_512(); /// Base EVP_MD algorithm sha3-512. More secure yet slower from sha2-256.
 
     if (argc > 1)
     {
-        argHandler(argc, argv, secret);
+        argHandler(evp_crypto, argc, argv, secret); // Console argument handler
     }
     else
     {
-        UIMessages();
-        double time_step = (double)X;
-        totpLoop(secret, time_step);
-        puts("\nStopped by signal `SIGINT'");
+        UIMessages();                            // Display UI messages to inform user about the running instructions.
+        double time_step = (double)X;            // Convert 30 second time_step (long value) to double value.
+        totpLoop(evp_crypto, secret, time_step); // Start the loop with the EVP_crypto (sha3-512 default), time_step (30 sec), secret (seeded to 3132333435363738393031323334353637383930)
+        puts("\nStopped by signal `SIGINT'");    // Inform the user that the program finished with SIGINT command.
     }
     return EXIT_SUCCESS;
 }
