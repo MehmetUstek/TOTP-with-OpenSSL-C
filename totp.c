@@ -10,16 +10,16 @@
 #include <openssl/rand.h> // OpenSSL Random Library to generate random key
 
 // Error definitions
-#define ERROR_OTP_WRONG_LENGTH 1        // Output OTP is at wrong length (should be 6)
-#define ERROR_OTP_INPUT_WRONG_LENGTH 2  // Input TOTP to verify is provided with a wrong length (should be 6)
-#define ERROR_WRONG_ARGUMENT 3          // The argument given to the terminal is undefined, unknown or typed incorrectly
-#define ERROR_MEMORY_ALLOCATION 4       // Memory allocation error when malloc() is called
-#define ERROR_BYTE_ARRAY_CONVERSION 5   // Error occurred at converting hex string to byte array
-#define ERROR_HMAC_RESULT_NULL 6        // Result of the HMAC was null
-#define ERROR_TIME_HEX_WRONG_FORMAT 7   // The unix time to hex string conversion did not output 16-digit long string.
-#define ERROR_OTP_INPUT_NOT_ALL_DIGIT 8 // Input TOTP to verify is provided with a wrong format (should be all digits)
-#define ERROR_RANDOM_BYTE_GENERATION 9  // Error occurred on generating random byte array.
-#define ERROR_KEY_WRONG_NUMBER_DIGITS 10
+#define ERROR_OTP_WRONG_LENGTH 1         // Output OTP is at wrong length (should be 6)
+#define ERROR_OTP_INPUT_WRONG_LENGTH 2   // Input TOTP to verify is provided with a wrong length (should be 6)
+#define ERROR_WRONG_ARGUMENT 3           // The argument given to the terminal is undefined, unknown or typed incorrectly
+#define ERROR_MEMORY_ALLOCATION 4        // Memory allocation error when malloc() is called
+#define ERROR_BYTE_ARRAY_CONVERSION 5    // Error occurred at converting hex string to byte array
+#define ERROR_HMAC_RESULT_NULL 6         // Result of the HMAC was null
+#define ERROR_TIME_HEX_WRONG_FORMAT 7    // The unix time to hex string conversion did not output 16-digit long string.
+#define ERROR_OTP_INPUT_NOT_ALL_DIGIT 8  // Input TOTP to verify is provided with a wrong format (should be all digits)
+#define ERROR_RANDOM_BYTE_GENERATION 9   // Error occurred on generating random byte array.
+#define ERROR_KEY_WRONG_NUMBER_DIGITS 10 // Generated random key is not 64-character long.
 
 // Forward declarations
 void killTheProgram(int exitCode);
@@ -199,7 +199,7 @@ void verifyTOTP(const EVP_MD *evp_crypto, char *key, long T0, long X, char *totp
 
     generateTOTP(evp_crypto, key, previous_time_step, 6, T0, X, previous_result); // Generate TOTP for the previous time_step
     generateTOTP(evp_crypto, key, currentTime, 6, T0, X, result);                 // Generate TOTP for the current time_step
-    if (strcmp(totp, result) == 0 || strcmp(totp, previous_result) == 0)
+    if (strcmp(totp, result) == 0 || strcmp(totp, previous_result) == 0)          // Either current or previous TOTP value should match input
     {
         printf("TOTP Verified");
     }
